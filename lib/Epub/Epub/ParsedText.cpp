@@ -298,6 +298,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
     }
 
     // Phase 3: Calculate final positions.
+  const bool justifyLines = blockStyle.alignment == CssTextAlign::Justify;
     const bool isLastLine = words.empty();
     const int gapCount = static_cast<int>(lineWordsVec.size()) - 1;
     const int spareSpace = effectivePageWidth - totalWordWidth;
@@ -308,7 +309,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
 
     int xpos = lineIndent;
 
-    if (isLastLine || gapCount <= 0) {
+    if (!justifyLines || isLastLine || gapCount <= 0) {
       for (size_t i = 0; i < lineWordsVec.size(); ++i) {
         lineXPos.push_back(static_cast<int16_t>(xpos));
         lineWords.push_back(lineWordsVec[i]);
@@ -333,7 +334,7 @@ void ParsedText::layoutCharacterWrap(const GfxRenderer& renderer, const int font
 
     if (!lineWords.empty() && (!isLastLine || includeLastLine)) {
       BlockStyle lineBlockStyle = blockStyle;
-      lineBlockStyle.alignment = isLastLine ? CssTextAlign::Left : CssTextAlign::Justify;
+      lineBlockStyle.alignment = (!justifyLines || isLastLine) ? CssTextAlign::Left : CssTextAlign::Justify;
       processLine(std::make_shared<TextBlock>(std::move(lineWords), std::move(lineXPos), std::move(lineWordStyles),
                                               lineBlockStyle));
     }
@@ -356,7 +357,7 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
   const int pageWidth = viewportWidth;
   const int spaceWidth = renderer.getSpaceWidth(fontId);
 
-  if (characterWrap && blockStyle.alignment == CssTextAlign::Justify) {
+  if (characterWrap && (blockStyle.alignment == CssTextAlign::Justify || blockStyle.alignment == CssTextAlign::Left)) {
     layoutCharacterWrap(renderer, fontId, viewportWidth, spaceWidth, processLine, includeLastLine);
     return;
   }

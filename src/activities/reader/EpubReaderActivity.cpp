@@ -31,6 +31,50 @@ constexpr unsigned long skipChapterMs = 700;
 // pages per minute, first item is 1 to prevent division by zero if accessed
 const std::vector<int> PAGE_TURN_LABELS = {1, 1, 3, 6, 12};
 
+struct EffectiveReaderSettings {
+  int fontId;
+  float lineCompression;
+  bool extraParagraphSpacing;
+  bool paragraphIndent;
+  uint8_t paragraphAlignment;
+  bool characterWrap;
+  bool hyphenationEnabled;
+  uint8_t embeddedStyle;
+  uint8_t imageRendering;
+};
+
+bool isKrLibraryPath(const std::string& path) {
+  if (path.empty()) return false;
+  return path.rfind("/kr/", 0) == 0 || path.rfind("kr/", 0) == 0;
+}
+
+float getKoPubLineCompression(const CrossPointSettings& settings) {
+  switch (settings.lineSpacing) {
+    case CrossPointSettings::TIGHT:
+      return 1.00f;
+    case CrossPointSettings::WIDE:
+      return 1.40f;
+    case CrossPointSettings::NORMAL:
+    default:
+      return 1.20f;
+  }
+}
+
+EffectiveReaderSettings getEffectiveReaderSettings(const Epub& epub) {
+  const bool koreanMode = isKrLibraryPath(epub.getPath());
+  EffectiveReaderSettings s{};
+  s.fontId = koreanMode ? KOPUB_14_FONT_ID : SETTINGS.getReaderFontId();
+  s.lineCompression = koreanMode ? getKoPubLineCompression(SETTINGS) : SETTINGS.getReaderLineCompression();
+  s.extraParagraphSpacing = SETTINGS.extraParagraphSpacing != 0;
+  s.paragraphIndent = SETTINGS.paragraphIndent != 0;
+  s.paragraphAlignment = SETTINGS.paragraphAlignment;
+  s.characterWrap = koreanMode ? true : (SETTINGS.characterWrap != 0);
+  s.hyphenationEnabled = koreanMode ? false : (SETTINGS.hyphenationEnabled != 0);
+  s.embeddedStyle = SETTINGS.embeddedStyle;
+  s.imageRendering = SETTINGS.imageRendering;
+  return s;
+}
+
 int clampPercent(int percent) {
   if (percent < 0) {
     return 0;
@@ -533,25 +577,27 @@ void EpubReaderActivity::render(RenderLock&& lock) {
   const uint16_t viewportWidth = renderer.getScreenWidth() - orientedMarginLeft - orientedMarginRight;
   const uint16_t viewportHeight = renderer.getScreenHeight() - orientedMarginTop - orientedMarginBottom;
 
+  const auto effectiveReader = getEffectiveReaderSettings(*epub);
+
   if (!section) {
     const auto filepath = epub->getSpineItem(currentSpineIndex).href;
     LOG_DBG("ERS", "Loading file: %s, index: %d", filepath.c_str(), currentSpineIndex);
     section = std::unique_ptr<Section>(new Section(epub, currentSpineIndex, renderer));
 
-    if (!section->loadSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
-                                  SETTINGS.extraParagraphSpacing, SETTINGS.paragraphIndent,
-                                  SETTINGS.paragraphAlignment, SETTINGS.characterWrap, viewportWidth,
-                                  viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
-                                  SETTINGS.imageRendering)) {
+    if (!section->loadSectionFile(effectiveReader.fontId, effectiveReader.lineCompression,
+                                  effectiveReader.extraParagraphSpacing, effectiveReader.paragraphIndent,
+                                  effectiveReader.paragraphAlignment, effectiveReader.characterWrap, viewportWidth,
+                                  viewportHeight, effectiveReader.hyphenationEnabled, effectiveReader.embeddedStyle,
+                                  effectiveReader.imageRendering)) {
       LOG_DBG("ERS", "Cache not found, building...");
 
       const auto popupFn = [this]() { GUI.drawPopup(renderer, tr(STR_INDEXING)); };
 
-      if (!section->createSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
-                                      SETTINGS.extraParagraphSpacing, SETTINGS.paragraphIndent,
-                                      SETTINGS.paragraphAlignment, SETTINGS.characterWrap, viewportWidth,
-                                      viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
-                                      SETTINGS.imageRendering, popupFn)) {
+      if (!section->createSectionFile(effectiveReader.fontId, effectiveReader.lineCompression,
+                                      effectiveReader.extraParagraphSpacing, effectiveReader.paragraphIndent,
+                                      effectiveReader.paragraphAlignment, effectiveReader.characterWrap, viewportWidth,
+                                      viewportHeight, effectiveReader.hyphenationEnabled, effectiveReader.embeddedStyle,
+                                      effectiveReader.imageRendering, popupFn)) {
         LOG_ERR("ERS", "Failed to persist page data to SD");
         section.reset();
         return;
@@ -661,21 +707,22 @@ void EpubReaderActivity::silentIndexNextChapterIfNeeded(const uint16_t viewportW
     return;
   }
 
+  const auto effectiveReader = getEffectiveReaderSettings(*epub);
   Section nextSection(epub, nextSpineIndex, renderer);
-  if (nextSection.loadSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
-                                  SETTINGS.extraParagraphSpacing, SETTINGS.paragraphIndent,
-                                  SETTINGS.paragraphAlignment, SETTINGS.characterWrap, viewportWidth,
-                                  viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
-                                  SETTINGS.imageRendering)) {
+  if (nextSection.loadSectionFile(effectiveReader.fontId, effectiveReader.lineCompression,
+                                  effectiveReader.extraParagraphSpacing, effectiveReader.paragraphIndent,
+                                  effectiveReader.paragraphAlignment, effectiveReader.characterWrap, viewportWidth,
+                                  viewportHeight, effectiveReader.hyphenationEnabled, effectiveReader.embeddedStyle,
+                                  effectiveReader.imageRendering)) {
     return;
   }
 
   LOG_DBG("ERS", "Silently indexing next chapter: %d", nextSpineIndex);
-  if (!nextSection.createSectionFile(SETTINGS.getReaderFontId(), SETTINGS.getReaderLineCompression(),
-                                     SETTINGS.extraParagraphSpacing, SETTINGS.paragraphIndent,
-                                     SETTINGS.paragraphAlignment, SETTINGS.characterWrap, viewportWidth,
-                                     viewportHeight, SETTINGS.hyphenationEnabled, SETTINGS.embeddedStyle,
-                                     SETTINGS.imageRendering)) {
+  if (!nextSection.createSectionFile(effectiveReader.fontId, effectiveReader.lineCompression,
+                                     effectiveReader.extraParagraphSpacing, effectiveReader.paragraphIndent,
+                                     effectiveReader.paragraphAlignment, effectiveReader.characterWrap, viewportWidth,
+                                     viewportHeight, effectiveReader.hyphenationEnabled, effectiveReader.embeddedStyle,
+                                     effectiveReader.imageRendering)) {
     LOG_ERR("ERS", "Failed silent indexing for chapter: %d", nextSpineIndex);
   }
 }
